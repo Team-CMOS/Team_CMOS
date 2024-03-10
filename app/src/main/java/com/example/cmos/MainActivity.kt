@@ -3,8 +3,10 @@ package com.example.cmos
 import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -44,11 +46,18 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import com.example.cmos.ui.theme.CMOSTheme
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.io.File
+import java.io.FileNotFoundException
+import java.io.InputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 
 class MainActivity : ComponentActivity() {
@@ -66,17 +75,36 @@ class MainActivity : ComponentActivity() {
     private val takePictureLauncher =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             if (success) {
+                val imageBitmap = BitmapFactory.decodeFile(imageFile?.absolutePath )
+                imageBitmapState = imageBitmap
+                imageUriState = imageFile?.toUri()
                 // Implement process logic here
                 processImage(imageBitmapState, imageUriState, textRecognizerState)
+            } else {
+                Log.e(TAG, "Error taking picture: Result is not success.")
+                Toast.makeText(this, "Error taking picture. Please try again.", Toast.LENGTH_SHORT).show()
             }
         }
+
+    private var imageFile: File? = null
+
 
     private val pickPhotoLauncher =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) {
-                // Implement process logic here
-                imageUriState = uri
-                processImage(imageBitmapState, imageUriState, textRecognizerState)
+                try {
+                    val imageStream: InputStream? = contentResolver.openInputStream(uri)
+                    val selectedImageBitmap = BitmapFactory.decodeStream(imageStream)
+                    imageBitmapState = selectedImageBitmap
+                    imageUriState = uri
+                    processImage(imageBitmapState, imageUriState, textRecognizerState)
+                } catch (e: FileNotFoundException) {
+                    Log.e(TAG, "Error loading selected image: ${e.message}")
+                    Toast.makeText(this, "Error loading selected image. Please try again.", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Log.e(TAG, "Error picking photo: Selected URI is null.")
+                Toast.makeText(this, "Error picking photo. Please try again.", Toast.LENGTH_SHORT).show()
             }
         }
     private val TAG = "MainActivity"
@@ -167,7 +195,7 @@ class MainActivity : ComponentActivity() {
                                 .size(180.dp)
                                 .padding(20.dp)
                                 .clickable {
-                                    processImage(imageBitmap, imageUri, textRecognizer)
+                                    //run ml model
                                 }
                         )
                     }
@@ -223,7 +251,10 @@ class MainActivity : ComponentActivity() {
         builder.setItems(options) { _, item ->
             when {
                 options[item] == "Take Photo" -> {
-                    takePictureLauncher.launch(imageUriState)
+                    imageFile = createImageFile()
+                    imageFile?.let {
+                        takePictureLauncher.launch(Uri.fromFile(it))
+                    }
                 }
 
                 options[item] == "Choose from Gallery" -> {
@@ -232,6 +263,19 @@ class MainActivity : ComponentActivity() {
             }
         }
         builder.show()
+    }
+
+    private fun createImageFile(): File? {
+        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        return File.createTempFile(
+            "JPEG_${timeStamp}_",
+            ".jpg",
+            storageDir
+        ).apply {
+            // Save the file path for use with ACTION_VIEW intents
+            imageFile = this
+        }
     }
 
     private fun processImage(
@@ -264,8 +308,16 @@ class MainActivity : ComponentActivity() {
         image?.let {
             textRecognizer.process(it)
                 .addOnSuccessListener { visionText ->
+//                    val preprocessedText = preprocessInput(visionText.text)
+//                    val modelOutput = invokeYourMLModel(preprocessedText)
+//                    val postprocessedText = postprocessOutput(modelOutput)
+
+                    //recognizedTextState = postprocessedText
                     recognizedTextState = visionText.text
                     Toast.makeText(this, "OCR completed", Toast.LENGTH_SHORT).show()
+
+                    // Show the result in a dialog
+//                    ShowResultDialog(postprocessedText)
 
                 }
                 .addOnFailureListener { e ->
@@ -318,6 +370,34 @@ class MainActivity : ComponentActivity() {
         ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
 
+    //private fun preprocessInput(recognizedText: String): String {
+        // Add your preprocessing logic here
+        // Example: Tokenization
+    //    return recognizedText.lowercase(Locale.ROOT)
+    //}
+
+    //private fun postprocessOutput(modelOutput: YourModelOutputType): String {
+        // Add your postprocessing logic here
+        // Example: Extract relevant information
+    //    return "Detected Dark Patterns: ${modelOutput.detectedPatterns}"
+    //}
+
+    @Composable
+    private fun ShowResultDialog(result: String) {
+        AlertDialog(
+            onDismissRequest = { /* Handle dialog dismissal if needed */ },
+            title = { Text("ML Model Result") },
+            text = { Text(result) },
+            confirmButton = {
+                Button(onClick = { /* Handle button click if needed */ }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+
+
 }
 
 @Preview(showBackground = true)
@@ -327,6 +407,5 @@ fun GreetingPreview() {
 
     }
 }
-
 
 
